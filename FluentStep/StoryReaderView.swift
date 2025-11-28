@@ -2,15 +2,31 @@
 //  StoryReaderView.swift
 //  FluentStep
 //
+//  Created by James Driscoll
+//
 
 import SwiftUI
+import UIKit
+#if canImport(Translation)
+import Translation
+#endif
+
+// PreferenceKey to store each word's bounds as anchors
+private struct WordBoundsKey: PreferenceKey {
+    typealias Value = [UUID: Anchor<CGRect>]
+    static var defaultValue: [UUID: Anchor<CGRect>] = [:]
+    static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
+        for (k, v) in nextValue() { value[k] = v }
+    }
+}
 
 struct StoryReaderView: View {
     let story: Story
 
-    // Translation state (no bubbles/overlays)
+    // Translation selection state
     @State private var selectedWord: StoryWord?
-    @State private var showTranslationBar: Bool = false
+    @State private var selectedWordID: UUID?
+    @State private var showTranslationOverlay: Bool = false
 
     // Quiz sheet state
     @State private var showQuizSheet = false
@@ -19,20 +35,21 @@ struct StoryReaderView: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(spacing: 12) {
-                    WrappedWordsView(
-                        words: story.words,
-                        onTap: { word in
-                            guard !word.isPunctuation else { return }
-                            selectedWord = word
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                showTranslationBar = true
-                            }
+                WrappedWordsView(
+                    words: story.words,
+                    selectedWordID: $selectedWordID,
+                    showTranslationOverlay: $showTranslationOverlay,
+                    onTap: { word in
+                        guard !word.isPunctuation else { return }
+                        selectedWord = word
+                        selectedWordID = word.id
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showTranslationOverlay = true
                         }
-                    )
-                    .padding(.horizontal)
-                    .padding(.top, 12)
-                }
+                    }
+                )
+                .padding(.horizontal)
+                .padding(.top, 12)
             }
 
             // Quiz button
@@ -48,23 +65,21 @@ struct StoryReaderView: View {
             .padding(.horizontal)
             .padding(.vertical, 12)
 
-            // Translation bar pinned at bottom (compact, reliable)
-            if showTranslationBar, let word = selectedWord {
+            // Fallback translation bar pinned at bottom (used on older OS or as fallback)
+            if showTranslationOverlay, let word = selectedWord {
                 TranslationBar(translation: word.translation ?? "No translation") {
                     withAnimation(.easeOut(duration: 0.15)) {
-                        showTranslationBar = false
+                        showTranslationOverlay = false
                     }
                 }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(AnyTransition.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .navigationTitle(story.title)
-        // Quiz as a resizable bottom sheet so the story remains visible underneath
         .sheet(isPresented: $showQuizSheet) {
             QuizSheetContainer(
                 questions: story.quiz,
                 onCollapse: {
-                    // collapse to a smaller detent to re-read the story
                     quizPeekDetent = .fraction(0.2)
                 }
             )
@@ -74,9 +89,11 @@ struct StoryReaderView: View {
     }
 }
 
-// MARK: - WrappedWordsView (simple wrapping, no geometry/overlays)
+// MARK: - WrappedWordsView (captures anchors and hosts iOS 18 translation overlay)
 private struct WrappedWordsView: View {
     let words: [StoryWord]
+    @Binding var selectedWordID: UUID?
+    @Binding var showTranslationOverlay: Bool
     let onTap: (StoryWord) -> Void
 
     @State private var containerWidth: CGFloat = 0
@@ -103,16 +120,58 @@ private struct WrappedWordsView: View {
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 3)
                                 .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 6))
-                                .onTapGesture {
-                                    onTap(w)
+                                // Publish this word's bounds as an anchor preference
+                                .anchorPreference(key: WordBoundsKey.self, value: .bounds) { anchor in
+                                    [w.id: anchor]
                                 }
+                                .onTapGesture { onTap(w) }
                         }
+                    }
+                }
+            }
+        }
+        // Read anchors and attach the iOS 18+ translationPresentation when we have an anchor
+        .overlayPreferenceValue(WordBoundsKey.self) { preferences in
+            GeometryReader { geo in
+                Group {
+                    if #available(iOS 18, *), let id = selectedWordID, let anchor = preferences[id] {
+                        // Resolve the Anchor<CGRect> to a concrete CGRect in this GeometryReader's coordinate space
+                        let resolvedRect: CGRect = geo[anchor]
+
+                        // Create an Anchor<CGRect>.Source from the resolved rect
+                        let source: Anchor<CGRect>.Source = Anchor<CGRect>.Source.rect(resolvedRect)
+
+                        // Use the fully-qualified PopoverAttachmentAnchor.rect(source) so the compiler knows the type
+                        Color.clear
+                            .translationPresentation(
+                                isPresented: $showTranslationOverlay,
+                                text: selectedWordText(),
+                                attachmentAnchor: PopoverAttachmentAnchor.rect(source)
+                            ) { translatedText in
+                                // Default replacementAction — dismiss overlay.
+                                // If you want to actually replace the word in your model,
+                                // do that mutation here (and handle persistence as needed).
+                                showTranslationOverlay = false
+                                // e.g. replaceSelectedWord(with: translatedText)
+                            }
+                            .allowsHitTesting(false)
+                    } else {
+                        Color.clear.allowsHitTesting(false)
                     }
                 }
             }
         }
     }
 
+    private func selectedWordText() -> String {
+        guard let id = selectedWordID,
+              let word = words.first(where: { $0.id == id }) else {
+            return ""
+        }
+        return word.text
+    }
+
+    // MARK: - Layout helpers (original logic preserved)
     private func makeLines(for words: [StoryWord], maxWidth: CGFloat) -> [[StoryWord]] {
         var lines: [[StoryWord]] = [[]]
         var currentWidth: CGFloat = 0
@@ -145,7 +204,7 @@ private struct WrappedWordsView: View {
     }
 }
 
-// MARK: - TranslationBar (compact bottom bar)
+// MARK: - TranslationBar (fallback bottom bar)
 private struct TranslationBar: View {
     let translation: String
     let dismiss: () -> Void
