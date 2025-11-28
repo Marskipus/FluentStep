@@ -218,34 +218,45 @@ private struct WrappedWordsView: View {
         let translation: String
         let onClose: () -> Void
 
-        // compute layout inside body (allowed)
+        @State private var popupSize: CGSize = .zero
+
         var body: some View {
-            // constants
-            let popupMaxWidth: CGFloat = 150
-            let horizontalPadding: CGFloat = 12
-            let popupHeightEstimate: CGFloat = 64
+            TranslationPopupView(translation: translation, onClose: onClose)
+                .frame(maxWidth: 180) // <-- max width clamp
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .preference(key: PopupSizeKey.self, value: geo.size)
+                    }
+                )
+                .onPreferenceChange(PopupSizeKey.self) { size in
+                    popupSize = size
+                }
+                .position(x: clampedX(), y: calculatedY())
+                .zIndex(999)
+        }
 
-            // compute X center clamped to container
-            var centerX = rect.midX
-            centerX = max(popupMaxWidth/2 + horizontalPadding, centerX)
-            centerX = min(containerSize.width - popupMaxWidth/2 - horizontalPadding, centerX)
+        // Clamp X to remain within container bounds
+        private func clampedX() -> CGFloat {
+            let halfWidth = popupSize.width / 2
+            return min(max(rect.midX, halfWidth + 8), containerSize.width - halfWidth - 8)
+        }
 
-            // decide above or below
+        // Decide Y based on available space
+        private func calculatedY() -> CGFloat {
             let spaceBelow = containerSize.height - rect.maxY
-            let showBelow = spaceBelow > (popupHeightEstimate + 16)
+            let showBelow = spaceBelow > (popupSize.height + 8)
+            return showBelow ? (rect.maxY + popupSize.height / 2 + 8) : (rect.minY - popupSize.height / 2 - 8)
+        }
 
-            // determine Y
-            let centerY: CGFloat = showBelow ? (rect.maxY + popupHeightEstimate/2 + 8) : (rect.minY - popupHeightEstimate/2 - 8)
-
-            return TranslationPopupView(
-                translation: translation,
-                onClose: onClose
-            )
-            .frame(maxWidth: popupMaxWidth)
-            .position(x: centerX, y: centerY)
-            .zIndex(999)
+        private struct PopupSizeKey: PreferenceKey {
+            static var defaultValue: CGSize = .zero
+            static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+                value = nextValue()
+            }
         }
     }
+
 }
 
 // MARK: - Popup view
@@ -254,7 +265,7 @@ private struct TranslationPopupView: View {
     let onClose: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) { // reduced spacing
             Text(translation)
                 .font(.subheadline)
                 .foregroundStyle(.primary)
@@ -266,19 +277,20 @@ private struct TranslationPopupView: View {
                 Button(action: onClose) {
                     Text("Close")
                         .font(.footnote).bold()
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .padding(.horizontal, 6) // smaller padding
+                        .padding(.vertical, 4)   // smaller padding
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(12)
+        .padding(8) // reduced padding from 12
         .background(.regularMaterial)
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 4)
+        .cornerRadius(10)
+        .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
     }
 }
+
 #Preview {
     NavigationStack {
         StoryReaderView(story: StoriesViewModel().stories.first!)
