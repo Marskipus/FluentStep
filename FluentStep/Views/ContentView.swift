@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct ContentView: View {
+    @StateObject private var reviewStore = ReviewStore()
+
     var body: some View {
         TabView {
             NavigationStack {
@@ -38,6 +40,7 @@ struct ContentView: View {
                 Label("Settings", systemImage: "gearshape.fill")
             }
         }
+        .environmentObject(reviewStore)
     }
 }
 

@@ -34,6 +34,8 @@ struct StoryReaderView: View {
     @State private var showQuizSheet = false
     @State private var quizPeekDetent: PresentationDetent = .fraction(0.3)
 
+    @EnvironmentObject private var reviewStore: ReviewStore
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -46,7 +48,6 @@ struct StoryReaderView: View {
                         guard !word.isPunctuation else { return }
                         selectedWord = word
                         selectedWordID = word.id
-                        // Optionally prefill cachedTranslations here if you already have it.
                         withAnimation(.easeInOut(duration: 0.12)) {
                             showPopup = true
                         }
@@ -100,6 +101,13 @@ struct StoryReaderView: View {
             }
         }
     }
+
+    // Helper: get translation for selected id from cachedTranslations first then StoryWord translation
+    private func translationForSelected(id: UUID) -> String {
+        if let cached = cachedTranslations[id] { return cached }
+        if let word = story.words.first(where: { $0.id == id }), let t = word.translation { return t }
+        return "No translation"
+    }
 }
 
 // MARK: - WrappedWordsView (publishes anchors and shows the custom popup)
@@ -113,6 +121,8 @@ private struct WrappedWordsView: View {
     let onTap: (StoryWord) -> Void
 
     @State private var containerWidth: CGFloat = 0
+
+    @EnvironmentObject private var reviewStore: ReviewStore
 
     var body: some View {
         // ZStack so popup is rendered above words in same coordinate space
@@ -152,13 +162,22 @@ private struct WrappedWordsView: View {
             .overlayPreferenceValue(WordBoundsKey.self) { preferences in
                 GeometryReader { geo in
                     if let id = selectedWordID, let anchor = preferences[id], showPopup {
-                        // resolve the anchor inline as an expression (no local let/var statements that break view builder)
                         PositionedPopup(
                             rect: geo[anchor],
                             containerSize: geo.size,
                             translation: translationForSelected(id: id),
+                            onSave: {
+                                // Save to review store using the selected word and translation
+                                if let word = words.first(where: { $0.id == id }) {
+                                    let back = translationForSelected(id: id)
+                                    reviewStore.addOrUpdate(front: word.text, back: back)
+                                }
+                                withAnimation(.easeOut(duration: 0.12)) {
+                                    selectedWordID = nil
+                                    showPopup = false
+                                }
+                            },
                             onClose: {
-                                // close the popup and clear selection
                                 withAnimation(.easeOut(duration: 0.12)) {
                                     selectedWordID = nil
                                     showPopup = false
@@ -216,12 +235,13 @@ private struct WrappedWordsView: View {
         let rect: CGRect
         let containerSize: CGSize
         let translation: String
+        let onSave: () -> Void
         let onClose: () -> Void
 
         @State private var popupSize: CGSize = .zero
 
         var body: some View {
-            TranslationPopupView(translation: translation, onClose: onClose)
+            TranslationPopupView(translation: translation, onSave: onSave, onClose: onClose)
                 .frame(maxWidth: 180) // <-- max width clamp
                 .background(
                     GeometryReader { geo in
@@ -262,6 +282,7 @@ private struct WrappedWordsView: View {
 // MARK: - Popup view
 private struct TranslationPopupView: View {
     let translation: String
+    let onSave: () -> Void
     let onClose: () -> Void
 
     var body: some View {
@@ -273,7 +294,9 @@ private struct TranslationPopupView: View {
                 .multilineTextAlignment(.leading)
 
             HStack {
-                Button(action: onClose) {
+                Button(action: {
+                    onSave()
+                }) {
                     Text("Save")
                         .font(.footnote).bold()
                         .padding(.horizontal, 6) // smaller padding
@@ -281,18 +304,18 @@ private struct TranslationPopupView: View {
                         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
-//                Spacer()
+
                 Button(action: onClose) {
                     Text("Close")
                         .font(.footnote).bold()
-                        .padding(.horizontal, 6) // smaller padding
-                        .padding(.vertical, 4)   // smaller padding
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
                         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(8) // reduced padding from 12
+        .padding(8)
         .background(.regularMaterial)
         .cornerRadius(10)
         .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
@@ -302,5 +325,6 @@ private struct TranslationPopupView: View {
 #Preview {
     NavigationStack {
         StoryReaderView(story: StoriesViewModel().stories.first!)
+            .environmentObject(ReviewStore())
     }
 }
