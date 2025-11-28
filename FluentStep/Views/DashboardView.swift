@@ -66,9 +66,9 @@ struct DashboardView: View {
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
 
-                // Flashcards entry point
+                // Flashcards entry point now goes to hub
                 NavigationLink {
-                    FlashCardsView()
+                    FlashcardsHubView()
                 } label: {
                     HStack {
                         Image(systemName: "book.fill")
