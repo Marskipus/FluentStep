@@ -56,7 +56,7 @@ struct FlashCardsView: View {
                     Label(didSaveBriefly ? "Saved" : "Save to Review", systemImage: didSaveBriefly ? "checkmark.circle.fill" : "tray.and.arrow.down.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyleProminentCompat()
                 .padding(.horizontal, 48)
 
                 // Shuffle / Reset row
@@ -75,6 +75,17 @@ struct FlashCardsView: View {
             }
         }
         .padding()
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func buttonStyleProminentCompat() -> some View {
+        if #available(iOS 15.0, macOS 12.0, *) {
+            self.buttonStyle(.borderedProminent)
+        } else {
+            self.buttonStyle(DefaultButtonStyle())
+        }
     }
 }
 

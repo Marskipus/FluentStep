@@ -103,7 +103,7 @@ struct FlashcardsReviewView: View {
                         Text("Show Answer")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyleProminentCompat()
                     .padding(.horizontal)
                 }
             }
@@ -187,23 +187,66 @@ struct FlashcardsReviewView: View {
 
     private struct GradeBar: View {
         var onGrade: (ReviewGrade) -> Void
+        @Environment(\.horizontalSizeClass) private var hSize
+        @Environment(\.dynamicTypeSize) private var typeSize
+
+        private func gradeButton(title: String, systemImage: String, prominent: Bool, action: @escaping () -> Void) -> some View {
+            Button(action: action) {
+                Label {
+                    Text(title)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                        .multilineTextAlignment(.center)
+                } icon: {
+                    Image(systemName: systemImage)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyleCompat(prominent: prominent)
+            .controlSize(.regular)
+        }
 
         var body: some View {
-            HStack(spacing: 12) {
-                Button { onGrade(.again) } label: { Label("Again", systemImage: "arrow.uturn.left.circle") }
-                    .buttonStyle(.bordered)
+            let useTwoRows = hSize == .compact || typeSize >= .accessibility2
 
-                Button { onGrade(.hard) } label: { Label("Hard", systemImage: "tortoise") }
-                    .buttonStyle(.bordered)
-
-                Button { onGrade(.good) } label: { Label("Good", systemImage: "hand.thumbsup") }
-                    .buttonStyle(.borderedProminent)
-
-                Button { onGrade(.easy) } label: { Label("Easy", systemImage: "bolt.fill") }
-                    .buttonStyle(.bordered)
+            if useTwoRows {
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        gradeButton(title: "Again", systemImage: "arrow.uturn.left.circle", prominent: false) {
+                            onGrade(.again)
+                        }
+                        gradeButton(title: "Hard", systemImage: "tortoise", prominent: false) {
+                            onGrade(.hard)
+                        }
+                    }
+                    HStack(spacing: 10) {
+                        gradeButton(title: "Good", systemImage: "hand.thumbsup", prominent: true) {
+                            onGrade(.good)
+                        }
+                        gradeButton(title: "Easy", systemImage: "bolt.fill", prominent: false) {
+                            onGrade(.easy)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            } else {
+                HStack(spacing: 12) {
+                    gradeButton(title: "Again", systemImage: "arrow.uturn.left.circle", prominent: false) {
+                        onGrade(.again)
+                    }
+                    gradeButton(title: "Hard", systemImage: "tortoise", prominent: false) {
+                        onGrade(.hard)
+                    }
+                    gradeButton(title: "Good", systemImage: "hand.thumbsup", prominent: true) {
+                        onGrade(.good)
+                    }
+                    gradeButton(title: "Easy", systemImage: "bolt.fill", prominent: false) {
+                        onGrade(.easy)
+                    }
+                }
+                .padding(.horizontal)
             }
-            .labelStyle(.titleAndIcon)
-            .padding(.top, 8)
         }
     }
 
@@ -262,6 +305,36 @@ struct AllFlashcardsView: View {
         .navigationTitle("All Flashcards")
         .toolbar {
             EditButton()
+        }
+    }
+}
+
+private extension View {
+    // Use a prominent bordered style when available, fallback otherwise
+    @ViewBuilder
+    func buttonStyleProminentCompat() -> some View {
+        if #available(iOS 15.0, macOS 12.0, *) {
+            self.buttonStyle(.borderedProminent)
+        } else {
+            self.buttonStyle(DefaultButtonStyle())
+        }
+    }
+
+    // Choose bordered vs prominent based on flag, with availability fallback
+    @ViewBuilder
+    func buttonStyleCompat(prominent: Bool) -> some View {
+        if #available(iOS 15.0, macOS 12.0, *) {
+            if prominent {
+                self.buttonStyle(.borderedProminent)
+            } else {
+                self.buttonStyle(.bordered)
+            }
+        } else {
+            if prominent {
+                self.buttonStyle(DefaultButtonStyle())
+            } else {
+                self.buttonStyle(PlainButtonStyle())
+            }
         }
     }
 }
