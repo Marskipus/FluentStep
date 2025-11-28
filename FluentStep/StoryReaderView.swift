@@ -221,9 +221,9 @@ private struct WrappedWordsView: View {
         // compute layout inside body (allowed)
         var body: some View {
             // constants
-            let popupMaxWidth: CGFloat = 300
+            let popupMaxWidth: CGFloat = 150
             let horizontalPadding: CGFloat = 12
-            let popupHeightEstimate: CGFloat = 84
+            let popupHeightEstimate: CGFloat = 64
 
             // compute X center clamped to container
             var centerX = rect.midX
@@ -277,5 +277,10 @@ private struct TranslationPopupView: View {
         .background(.regularMaterial)
         .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 4)
+    }
+}
+#Preview {
+    NavigationStack {
+        StoryReaderView(story: StoriesViewModel().stories.first!)
     }
 }
