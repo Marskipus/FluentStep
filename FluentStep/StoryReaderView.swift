@@ -273,7 +273,15 @@ private struct TranslationPopupView: View {
                 .multilineTextAlignment(.leading)
 
             HStack {
-                Spacer()
+                Button(action: onClose) {
+                    Text("Save")
+                        .font(.footnote).bold()
+                        .padding(.horizontal, 6) // smaller padding
+                        .padding(.vertical, 4)   // smaller padding
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+//                Spacer()
                 Button(action: onClose) {
                     Text("Close")
                         .font(.footnote).bold()
