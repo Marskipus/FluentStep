@@ -1,10 +1,3 @@
-//
-//  FlashCardView.swift
-//  FluentStep
-//
-//  Created by James Driscoll on 11/28/25.
-//
-
 import SwiftUI
 
 struct FlashCardView: View {
@@ -17,15 +10,31 @@ struct FlashCardView: View {
                 .fill(isFlipped ? Color.blue.opacity(0.9) : Color.orange.opacity(0.9))
                 .shadow(radius: 6)
 
-            VStack {
-                Text(isFlipped ? card.back : card.front)
-                    .font(.largeTitle)
-                    .bold()
-                    .foregroundColor(.white)
-                    .padding()
-                    .multilineTextAlignment(.center)
+            // Content
+            ZStack {
+                // Front side
+                VStack {
+                    Text(card.front)
+                        .font(.largeTitle).bold()
+                        .foregroundColor(.white)
+                        .padding()
+                        .multilineTextAlignment(.center)
+                }
+                .opacity(isFlipped ? 0 : 1)
+
+                // Back side
+                VStack {
+                    Text(card.back)
+                        .font(.largeTitle).bold()
+                        .foregroundColor(.white)
+                        .padding()
+                        .multilineTextAlignment(.center)
+                }
+                .opacity(isFlipped ? 1 : 0)
+                // <-- The crucial fix: rotate the back side 180° extra!
+                .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: 280, height: 180)
         }
         .frame(width: 280, height: 180)
         .rotation3DEffect(.degrees(isFlipped ? 180 : 0), axis: (x: 0, y: 1, z: 0))
