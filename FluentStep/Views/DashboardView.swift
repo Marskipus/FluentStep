@@ -52,7 +52,6 @@ struct DashboardView: View {
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
 
-                // New: Stories entry point
                 NavigationLink {
                     StoriesListView(viewModel: StoriesViewModel())
                 } label: {
@@ -67,10 +66,31 @@ struct DashboardView: View {
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
 
+                // Flashcards entry point
+                NavigationLink {
+                    FlashCardsView()
+                } label: {
+                    HStack {
+                        Image(systemName: "book.fill")
+                        Text("Flashcards (B1 Words)")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+
                 Spacer(minLength: 8)
             }
             .padding()
         }
         .navigationTitle("Dashboard")
+    }
+}
+
+#Preview {
+    NavigationStack {
+        DashboardView()
     }
 }
