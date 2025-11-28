@@ -2,14 +2,11 @@
 //  StoryReaderView.swift
 //  FluentStep
 //
-//  Created by James Driscoll
+//  Updated: anchored custom translation popup
 //
 
 import SwiftUI
 import UIKit
-#if canImport(Translation)
-import Translation
-#endif
 
 // PreferenceKey to store each word's bounds as anchors
 private struct WordBoundsKey: PreferenceKey {
@@ -23,12 +20,17 @@ private struct WordBoundsKey: PreferenceKey {
 struct StoryReaderView: View {
     let story: Story
 
-    // Translation selection state
-    @State private var selectedWord: StoryWord?
+    // Which word is selected (by id) and currently-selected StoryWord for fallback text
     @State private var selectedWordID: UUID?
-    @State private var showTranslationOverlay: Bool = false
+    @State private var selectedWord: StoryWord?
 
-    // Quiz sheet state
+    // whether our custom popup is showing
+    @State private var showPopup: Bool = false
+
+    // A local cache of translations — your app can update this dictionary.
+    @State private var cachedTranslations: [UUID: String] = [:]
+
+    // Quiz sheet state (unchanged)
     @State private var showQuizSheet = false
     @State private var quizPeekDetent: PresentationDetent = .fraction(0.3)
 
@@ -38,13 +40,15 @@ struct StoryReaderView: View {
                 WrappedWordsView(
                     words: story.words,
                     selectedWordID: $selectedWordID,
-                    showTranslationOverlay: $showTranslationOverlay,
+                    showPopup: $showPopup,
+                    cachedTranslations: $cachedTranslations,
                     onTap: { word in
                         guard !word.isPunctuation else { return }
                         selectedWord = word
                         selectedWordID = word.id
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            showTranslationOverlay = true
+                        // Optionally prefill cachedTranslations here if you already have it.
+                        withAnimation(.easeInOut(duration: 0.12)) {
+                            showPopup = true
                         }
                     }
                 )
@@ -64,16 +68,6 @@ struct StoryReaderView: View {
             }
             .padding(.horizontal)
             .padding(.vertical, 12)
-
-            // Fallback translation bar pinned at bottom (used on older OS or as fallback)
-            if showTranslationOverlay, let word = selectedWord {
-                TranslationBar(translation: word.translation ?? "No translation") {
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        showTranslationOverlay = false
-                    }
-                }
-                .transition(AnyTransition.move(edge: .bottom).combined(with: .opacity))
-            }
         }
         .navigationTitle(story.title)
         .sheet(isPresented: $showQuizSheet) {
@@ -86,92 +80,107 @@ struct StoryReaderView: View {
             .presentationDetents([.fraction(0.2), .medium, .large], selection: $quizPeekDetent)
             .presentationDragIndicator(.visible)
         }
-    }
-}
-
-// MARK: - WrappedWordsView (captures anchors and hosts iOS 18 translation overlay)
-private struct WrappedWordsView: View {
-    let words: [StoryWord]
-    @Binding var selectedWordID: UUID?
-    @Binding var showTranslationOverlay: Bool
-    let onTap: (StoryWord) -> Void
-
-    @State private var containerWidth: CGFloat = 0
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { containerWidth = geo.size.width }
-                    .onChange(of: geo.size.width) { new in containerWidth = new }
+        // seed cached translations from the story's inline translations
+        .onAppear {
+            for w in story.words {
+                if let t = w.translation {
+                    cachedTranslations[w.id] = t
+                }
             }
-            .frame(height: 0)
-
-            ForEach(makeLines(for: words, maxWidth: max(containerWidth, 10)), id: \.self) { line in
-                HStack(spacing: 6) {
-                    ForEach(line) { w in
-                        if w.isPunctuation {
-                            Text(w.text)
-                                .font(.body)
-                        } else {
-                            Text(w.text)
-                                .font(.body)
-                                .foregroundStyle(.primary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 6))
-                                // Publish this word's bounds as an anchor preference
-                                .anchorPreference(key: WordBoundsKey.self, value: .bounds) { anchor in
-                                    [w.id: anchor]
-                                }
-                                .onTapGesture { onTap(w) }
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Refresh Cache") {
+                    for w in story.words {
+                        if cachedTranslations[w.id] == nil, let t = w.translation {
+                            cachedTranslations[w.id] = t
                         }
                     }
                 }
             }
         }
-        // Read anchors and attach the iOS 18+ translationPresentation when we have an anchor
-        .overlayPreferenceValue(WordBoundsKey.self) { preferences in
-            GeometryReader { geo in
-                Group {
-                    if #available(iOS 18, *), let id = selectedWordID, let anchor = preferences[id] {
-                        // Resolve the Anchor<CGRect> to a concrete CGRect in this GeometryReader's coordinate space
-                        let resolvedRect: CGRect = geo[anchor]
+    }
+}
 
-                        // Create an Anchor<CGRect>.Source from the resolved rect
-                        let source: Anchor<CGRect>.Source = Anchor<CGRect>.Source.rect(resolvedRect)
+// MARK: - WrappedWordsView (publishes anchors and shows the custom popup)
+private struct WrappedWordsView: View {
+    let words: [StoryWord]
 
-                        // Use the fully-qualified PopoverAttachmentAnchor.rect(source) so the compiler knows the type
-                        Color.clear
-                            .translationPresentation(
-                                isPresented: $showTranslationOverlay,
-                                text: selectedWordText(),
-                                attachmentAnchor: PopoverAttachmentAnchor.rect(source)
-                            ) { translatedText in
-                                // Default replacementAction — dismiss overlay.
-                                // If you want to actually replace the word in your model,
-                                // do that mutation here (and handle persistence as needed).
-                                showTranslationOverlay = false
-                                // e.g. replaceSelectedWord(with: translatedText)
+    // parent bindings
+    @Binding var selectedWordID: UUID?
+    @Binding var showPopup: Bool
+    @Binding var cachedTranslations: [UUID: String]
+    let onTap: (StoryWord) -> Void
+
+    @State private var containerWidth: CGFloat = 0
+
+    var body: some View {
+        // ZStack so popup is rendered above words in same coordinate space
+        ZStack(alignment: .topLeading) {
+            VStack(alignment: .leading, spacing: 10) {
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { containerWidth = geo.size.width }
+                        .onChange(of: geo.size.width) { new in containerWidth = new }
+                }
+                .frame(height: 0)
+
+                ForEach(makeLines(for: words, maxWidth: max(containerWidth, 10)), id: \.self) { line in
+                    HStack(spacing: 6) {
+                        ForEach(line) { w in
+                            if w.isPunctuation {
+                                Text(w.text)
+                                    .font(.body)
+                            } else {
+                                Text(w.text)
+                                    .font(.body)
+                                    .foregroundStyle(.primary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 6))
+                                    // publish this word's bounds as an anchor preference
+                                    .anchorPreference(key: WordBoundsKey.self, value: .bounds) { anchor in
+                                        [w.id: anchor]
+                                    }
+                                    .onTapGesture { onTap(w) }
                             }
-                            .allowsHitTesting(false)
+                        }
+                    }
+                }
+            }
+            // read anchors and render popup positioned via a helper view
+            .overlayPreferenceValue(WordBoundsKey.self) { preferences in
+                GeometryReader { geo in
+                    if let id = selectedWordID, let anchor = preferences[id], showPopup {
+                        // resolve the anchor inline as an expression (no local let/var statements that break view builder)
+                        PositionedPopup(
+                            rect: geo[anchor],
+                            containerSize: geo.size,
+                            translation: translationForSelected(id: id),
+                            onClose: {
+                                // close the popup and clear selection
+                                withAnimation(.easeOut(duration: 0.12)) {
+                                    selectedWordID = nil
+                                    showPopup = false
+                                }
+                            }
+                        )
                     } else {
-                        Color.clear.allowsHitTesting(false)
+                        EmptyView()
                     }
                 }
             }
         }
     }
 
-    private func selectedWordText() -> String {
-        guard let id = selectedWordID,
-              let word = words.first(where: { $0.id == id }) else {
-            return ""
-        }
-        return word.text
+    // Helper: get translation for selected id from cachedTranslations first then StoryWord translation
+    private func translationForSelected(id: UUID) -> String {
+        if let cached = cachedTranslations[id] { return cached }
+        if let word = words.first(where: { $0.id == id }), let t = word.translation { return t }
+        return "No translation"
     }
 
-    // MARK: - Layout helpers (original logic preserved)
+    // MARK: - Layout helpers (same as original)
     private func makeLines(for words: [StoryWord], maxWidth: CGFloat) -> [[StoryWord]] {
         var lines: [[StoryWord]] = [[]]
         var currentWidth: CGFloat = 0
@@ -198,42 +207,75 @@ private struct WrappedWordsView: View {
         let font = UIFont.preferredFont(forTextStyle: .body)
         let attrs: [NSAttributedString.Key: Any] = [.font: font]
         var width = text.size(withAttributes: attrs).width
-        // padding to match the pill background
-        width += 12
+        width += 12 // padding to match pill
         return ceil(width)
+    }
+
+    // MARK: - PositionedPopup helper (separates layout math from view-builder)
+    private struct PositionedPopup: View {
+        let rect: CGRect
+        let containerSize: CGSize
+        let translation: String
+        let onClose: () -> Void
+
+        // compute layout inside body (allowed)
+        var body: some View {
+            // constants
+            let popupMaxWidth: CGFloat = 300
+            let horizontalPadding: CGFloat = 12
+            let popupHeightEstimate: CGFloat = 84
+
+            // compute X center clamped to container
+            var centerX = rect.midX
+            centerX = max(popupMaxWidth/2 + horizontalPadding, centerX)
+            centerX = min(containerSize.width - popupMaxWidth/2 - horizontalPadding, centerX)
+
+            // decide above or below
+            let spaceBelow = containerSize.height - rect.maxY
+            let showBelow = spaceBelow > (popupHeightEstimate + 16)
+
+            // determine Y
+            let centerY: CGFloat = showBelow ? (rect.maxY + popupHeightEstimate/2 + 8) : (rect.minY - popupHeightEstimate/2 - 8)
+
+            return TranslationPopupView(
+                translation: translation,
+                onClose: onClose
+            )
+            .frame(maxWidth: popupMaxWidth)
+            .position(x: centerX, y: centerY)
+            .zIndex(999)
+        }
     }
 }
 
-// MARK: - TranslationBar (fallback bottom bar)
-private struct TranslationBar: View {
+// MARK: - Popup view
+private struct TranslationPopupView: View {
     let translation: String
-    let dismiss: () -> Void
+    let onClose: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "arrowshape.turn.up.right.fill")
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
             Text(translation)
                 .font(.subheadline)
                 .foregroundStyle(.primary)
-                .lineLimit(2)
-            Spacer()
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
+
+            HStack {
+                Spacer()
+                Button(action: onClose) {
+                    Text("Close")
+                        .font(.footnote).bold()
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
-        .overlay(
-            Rectangle()
-                .frame(height: 0.5)
-                .foregroundStyle(Color.black.opacity(0.08)),
-            alignment: .top
-        )
+        .padding(12)
+        .background(.regularMaterial)
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 4)
     }
 }
